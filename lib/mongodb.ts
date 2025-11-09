@@ -3,13 +3,6 @@ import mongoose from 'mongoose';
 // Define the MongoDB connection string from environment variables
 const MONGODB_URI = process.env.MONGODB_URI;
 
-// Throw an error if the connection string is not defined
-if (!MONGODB_URI) {
-  throw new Error(
-    'Please define the MONGODB_URI environment variable inside .env.local'
-  );
-}
-
 /**
  * Global is used here to maintain a cached connection across hot reloads
  * in development. This prevents connections from growing exponentially
@@ -23,15 +16,15 @@ interface MongooseCache {
 // Extend the global type to include our mongoose cache
 declare global {
   // eslint-disable-next-line no-var
-  var mongoose: MongooseCache | undefined;
+  var mongooseCache: MongooseCache | undefined;
 }
 
 // Initialize the cached connection object
-let cached: MongooseCache = global.mongoose || { conn: null, promise: null };
+let cached: MongooseCache = global.mongooseCache || { conn: null, promise: null };
 
 // Cache the connection globally to persist across hot reloads
-if (!global.mongoose) {
-  global.mongoose = cached;
+if (!global.mongooseCache) {
+  global.mongooseCache = cached;
 }
 
 /**
@@ -47,6 +40,13 @@ async function connectToDatabase(): Promise<typeof mongoose> {
 
   // Return existing promise if connection is in progress
   if (!cached.promise) {
+    // Throw an error if the connection string is not defined
+    if (!MONGODB_URI) {
+      throw new Error(
+        'Please define the MONGODB_URI environment variable inside .env.local'
+      );
+    }
+
     const opts = {
       bufferCommands: false, // Disable mongoose buffering
     };
