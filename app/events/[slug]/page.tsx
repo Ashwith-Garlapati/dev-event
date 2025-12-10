@@ -3,9 +3,8 @@ import Image from "next/image";
 import BookEvent from "@/components/BookEvent";
 import { getSimilarEventsBySlug } from "@/lib/actions/event.actions";
 import EventCard from "@/components/EventCard";
-import { IEvent } from "@/database";
+import { unstable_cache } from "next/cache";
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
 
 const EventDetailItem = ({ icon, alt, label }: { icon: string, alt: string, label: string }) => (
   <div className="flex flex-row gap-2 items-center">
@@ -33,6 +32,8 @@ const EventTags = ({ tags }: { tags: string[] }) => (
 
 interface EventResponse {
   event?: {
+    _id: string,
+    slug: string,
     title: string;
     description?: string;
     image: string;
@@ -48,24 +49,26 @@ interface EventResponse {
   };
 }
 
-const EventDetailsPage = async ({ params }: { params: Promise<{ slug: string }>}) => {
-  const { slug } = await params;
+  const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
 
   if (!BASE_URL) {
-    console.error("NEXT_PUBLIC_BASE_URL is not defined");
-    return notFound();
+    throw new Error("NEXT_PUBLIC_BASE_URL is not defined");
   }
 
-  let event: EventResponse["event"] | undefined;
+const fetchEventBySlug = unstable_cache(
+  async (slug: string): Promise<EventResponse["event"] | null> => {
+    const response = await fetch(`${BASE_URL}/api/events/${slug}`, {
+      // Cache successful responses for 1 hour; errors are not cached.
+      next: { revalidate: 60 * 60 },
+    });
 
-  try {
-    const response = await fetch(`${BASE_URL}/api/events/${slug}`);
+    if (response.status === 404) {
+      // Do not throw here so a genuinely missing event can be treated as notFound()
+      // by the page without turning it into a cached error state.
+      return null;
+    }
 
     if (!response.ok) {
-      if (response.status === 404) {
-        return notFound();
-      }
-
       console.error("Failed to fetch event", {
         status: response.status,
         statusText: response.statusText,
@@ -76,24 +79,36 @@ const EventDetailsPage = async ({ params }: { params: Promise<{ slug: string }>}
 
     const data: EventResponse = await response.json();
 
-    if (!data?.event) {
-      // Event object is missing even though the request succeeded
-      return notFound();
-    }
+    return data?.event ?? null;
+  },
+  ["event-by-slug"],
+  { revalidate: 60 * 60 }
+);
 
-    event = data.event;
+const EventDetailsPage = async ({ params }: { params: Promise<{ slug: string }>}) => {
+  const { slug } = await params;
+
+  let event: EventResponse["event"] | null = null;
+
+  try {
+    event = await fetchEventBySlug(slug);
   } catch (error) {
     console.error("Error while fetching event details", error);
+    // Treat network/config issues as non-cached failures.
     return notFound();
   }
 
-  const { title, description, image, overview, date, time, location, mode, agenda, audience, tags, organizer } = event!;
+  if (!event) {
+    // Not cached at the page level; only the successful data fetch is cached.
+    return notFound();
+  }
+
+  const { title, description, image, overview, date, time, location, mode, agenda, audience, tags, organizer } = event;
 
   if (!description) return notFound();
 
   const bookings = 10;
 
-  // const similarEvents: IEvent[] = await getSimilarEventsBySlug(slug);
   const similarEvents = await getSimilarEventsBySlug(slug);
 
   return (
@@ -143,7 +158,7 @@ const EventDetailsPage = async ({ params }: { params: Promise<{ slug: string }>}
               <p className="text-sm">Be the first to book your spot!</p>
             )}
 
-            <BookEvent />
+            <BookEvent eventId={event._id} slug={event.slug} />
           </div>
         </aside>
       </div>
