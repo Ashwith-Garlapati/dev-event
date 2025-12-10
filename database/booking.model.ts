@@ -4,6 +4,7 @@ import Event from './event.model';
 // TypeScript interface for Booking document
 export interface IBooking extends Document {
   eventId: mongoose.Types.ObjectId;
+  slug: string,
   email: string;
   createdAt: Date;
   updatedAt: Date;
@@ -17,7 +18,20 @@ const BookingSchema = new Schema<IBooking>(
       ref: 'Event',
       required: [true, 'Event ID is required'],
     },
-    email: {
+    slug: {
+      type: String,
+      required: [true, 'Slug is required'],
+      trim: true,
+      lowercase: true,
+      validate: {
+        validator: (slug: string) => {
+          // URL-safe slug: lowercase alphanumeric and hyphens only
+          const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+          return slugRegex.test(slug);
+        },
+        message: 'Slug must be URL-safe (lowercase letters, numbers, and hyphens only)',
+      },
+    },    email: {
       type: String,
       required: [true, 'Email is required'],
       trim: true,
